@@ -3,10 +3,23 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "expo": "~57.0.20",
+    "@expo/vector-icons": "^15.0.2",
+    "@mozilla/readability": "^0.6.0",
+    "expo": "~57.0.21",
+    "expo-clipboard": "~57.0.1",
+    "expo-file-system": "^57.0.6",
+    "expo-intent-launcher": "~57.0.1",
+    "expo-share-intent": "^8.0.1",
+    "expo-sqlite": "^57.0.2",
     "expo-status-bar": "~57.0.1",
+    "expo-system-ui": "~57.0.3",
+    "expo-web-browser": "~57.0.2",
+    "linkedom": "^0.18.13",
     "react": "19.2.3",
-    "react-native": "0.86.3"
+    "react-native": "0.86.3",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-webview": "13.16.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
@@ -14,9 +27,12 @@
   },
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web",
+    "prebuild": "expo prebuild --clean",
+    "dev-build:android": "expo run:android",
+    "typecheck": "tsc --noEmit"
   },
   "private": true
 }
