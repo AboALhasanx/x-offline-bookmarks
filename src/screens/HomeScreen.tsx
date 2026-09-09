@@ -47,13 +47,22 @@ export default function HomeScreen({ refreshKey }: Props) {
   const [tweetJob, setTweetJob] = useState<PendingItem | null>(null);
   const [preloadJob, setPreloadJob] = useState<PreloadTarget | null>(null);
   const [openStack, setOpenStack] = useState<number[]>([]);
+  const [batchTotal, setBatchTotal] = useState(0);
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(0.3)).current;
   const alive = useRef(true);
   const insets = useSafeAreaInsets();
-
   const reload = useCallback(async () => {
     try {
-      setBookmarks(await getBookmarks());
-      setPendingCount(await getPendingCount());
+      const currentBookmarks = await getBookmarks();
+      const currentPending = await getPendingCount();
+      setBookmarks(currentBookmarks);
+      setPendingCount(currentPending);
+      if (currentPending > 0) {
+        setBatchTotal((prev) => (prev < currentPending ? currentPending : prev));
+      } else {
+        setBatchTotal(0);
+      }
       refreshLanSyncPayload();
     } catch (e) {
       if (alive.current) setError(e instanceof Error ? e.message : String(e));
@@ -292,8 +301,36 @@ export default function HomeScreen({ refreshKey }: Props) {
   }
   const { colors, isDark, toggleTheme } = useTheme();
 
-  const sections = useMemo(() => groupBookmarksByDate(bookmarks), [bookmarks]);
+  const completedCount = Math.max(0, batchTotal - pendingCount);
+  const targetPercent =
+    batchTotal > 0
+      ? Math.min(100, Math.round((completedCount / batchTotal) * 100))
+      : processing || pendingCount > 0
+        ? 25
+        : 0;
 
+  useEffect(() => {
+    Animated.timing(progressAnim, {
+      toValue: targetPercent,
+      duration: 350,
+      useNativeDriver: false,
+    }).start();
+  }, [targetPercent, progressAnim]);
+
+  useEffect(() => {
+    if (processing || pendingCount > 0) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+        ]),
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+  }, [processing, pendingCount, pulseAnim]);
+
+  const sections = useMemo(() => groupBookmarksByDate(bookmarks), [bookmarks]);
   if (!ready) {
     return (
       <View style={[styles.center, { backgroundColor: colors.bg }]}>
@@ -350,8 +387,43 @@ export default function HomeScreen({ refreshKey }: Props) {
         </View>
       </View>
 
-      {status ? <Text style={[styles.status, { color: colors.status }]}>{status}</Text> : null}
+      {processing || pendingCount > 0 ? (
+        <View style={[styles.progressCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+          <View style={styles.progressTopRow}>
+            <View style={styles.progressLabelGroup}>
+              <Animated.View style={[styles.pulseIndicator, { backgroundColor: colors.accent, opacity: pulseAnim }]} />
+              <Text style={[styles.progressTitle, { color: colors.text }]}>
+                {tweetJob ? 'Saving Tweet' : preloadJob ? 'Archiving Web Docs' : 'Processing Queue'}
+              </Text>
+            </View>
+            <Text style={[styles.progressCountBadge, { color: colors.accent }]}>
+              {batchTotal > 0 ? `${completedCount} of ${batchTotal}` : `${pendingCount} pending`}
+            </Text>
+          </View>
 
+          <Text style={[styles.progressStatusText, { color: colors.sub }]} numberOfLines={1}>
+            {status || 'Downloading media and offline packages…'}
+          </Text>
+
+          <View style={[styles.progressTrack, { backgroundColor: colors.thumbBg }]}>
+            <Animated.View
+              style={[
+                styles.progressBar,
+                {
+                  backgroundColor: colors.accent,
+                  width: progressAnim.interpolate({
+                    inputRange: [0, 100],
+                    outputRange: ['6%', '100%'],
+                    extrapolate: 'clamp',
+                  }),
+                },
+              ]}
+            />
+          </View>
+        </View>
+      ) : status ? (
+        <Text style={[styles.status, { color: colors.status }]}>{status}</Text>
+      ) : null}
 
       <SectionList
         sections={sections}
@@ -360,8 +432,12 @@ export default function HomeScreen({ refreshKey }: Props) {
         stickySectionHeadersEnabled={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={[styles.emptyText, { color: colors.sub }]}>
-              No bookmarks yet. Share a tweet or article to save it offline.
+            <View style={[styles.emptyIconCircle, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+              <Feather name="bookmark" size={30} color={colors.sub} />
+            </View>
+            <Text style={[styles.emptyTitle, { color: colors.text }]}>No Bookmarks Saved Yet</Text>
+            <Text style={[styles.emptySub, { color: colors.sub }]}>
+              Share any tweet from the X app or tap Sync to receive bookmarks from another device.
             </Text>
           </View>
         }
@@ -570,6 +646,78 @@ function TrashIcon({ color = '#fff' }: { color?: string }) {
 }
 
 const styles = StyleSheet.create({
+  progressCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    marginVertical: 10,
+  },
+  progressTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  progressLabelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pulseIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  progressTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  progressCountBadge: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  progressStatusText: {
+    fontSize: 12,
+    marginBottom: 10,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  progressBar: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  emptyContainer: {
+    paddingVertical: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptySub: {
+    fontSize: 13.5,
+    textAlign: 'center',
+    lineHeight: 20,
+    maxWidth: 280,
+  },
   container: { flex: 1, paddingHorizontal: 16 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   topRow: {
@@ -609,8 +757,6 @@ const styles = StyleSheet.create({
   status: { fontSize: 13, marginVertical: 6 },
   error: { fontSize: 14, paddingHorizontal: 16 },
 
-  emptyContainer: { paddingVertical: 48, alignItems: 'center', justifyContent: 'center' },
-  emptyText: { fontSize: 14, textAlign: 'center', lineHeight: 20 },
   sectionHeader: {
     paddingTop: 18,
     paddingBottom: 8,
