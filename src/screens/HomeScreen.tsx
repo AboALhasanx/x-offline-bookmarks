@@ -3,6 +3,7 @@ import {
   Alert,
   Animated,
   Image,
+  Keyboard,
   SectionList,
   StyleSheet,
   Text,
@@ -49,6 +50,9 @@ export default function HomeScreen({ refreshKey }: Props) {
   const [preloadJob, setPreloadJob] = useState<PreloadTarget | null>(null);
   const [openStack, setOpenStack] = useState<number[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchAnim = useRef(new Animated.Value(0)).current;
+  const searchInputRef = useRef<TextInput>(null);
   const [batchTotal, setBatchTotal] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
@@ -70,6 +74,29 @@ export default function HomeScreen({ refreshKey }: Props) {
       if (alive.current) setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
+  function openSearch() {
+    setSearchOpen(true);
+    Animated.timing(searchAnim, {
+      toValue: 1,
+      duration: 220,
+      useNativeDriver: false,
+    }).start(() => {
+      searchInputRef.current?.focus();
+    });
+  }
+
+  function closeSearch() {
+    Keyboard.dismiss();
+    setSearchQuery('');
+    Animated.timing(searchAnim, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: false,
+    }).start(() => {
+      setSearchOpen(false);
+    });
+  }
+
   useEffect(() => {
     alive.current = true;
     (async () => {
@@ -297,6 +324,7 @@ export default function HomeScreen({ refreshKey }: Props) {
   }
 
   async function openBookmark(item: Bookmark) {
+    Keyboard.dismiss();
     await markBookmarkViewed(item.id);
     setOpenStack((s) => [...s, item.id]);
     reload();
@@ -374,54 +402,90 @@ export default function HomeScreen({ refreshKey }: Props) {
   return (
     <View style={[styles.container, { backgroundColor: colors.bg, paddingTop: insets.top + 12 }]}>
       <View style={styles.topRow}>
-        <View>
-          <Text style={[styles.header, { color: colors.text }]}>Bookmarks</Text>
-          <Text style={[styles.sub, { color: colors.sub }]}>
-            {bookmarks.length} saved · {pendingCount} pending
-          </Text>
-        </View>
-        <View style={styles.topRightControls}>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={openSyncDialog}
-            style={[styles.syncButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+        {!searchOpen ? (
+          <>
+            <View style={styles.brandingGroup}>
+              <Image source={require('../../assets/icon.png')} style={[styles.appLogo, { borderColor: colors.cardBorder }]} />
+              <Text style={[styles.header, { color: colors.text }]}>Bookmarks</Text>
+            </View>
+
+            <View style={styles.topRightControls}>
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={openSearch}
+                style={[styles.headerIconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                accessibilityLabel="Search"
+              >
+                <Feather name="search" size={15} color={colors.text} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={openSyncDialog}
+                style={[styles.headerIconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                accessibilityLabel="Sync"
+              >
+                <Feather name="share-2" size={15} color={colors.text} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                activeOpacity={0.7}
+                onPress={toggleTheme}
+                style={[styles.headerIconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
+                accessibilityLabel="Toggle Theme"
+              >
+                <Feather name={isDark ? 'sun' : 'moon'} size={15} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <Animated.View
+            style={[
+              styles.searchBarRow,
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.cardBorder,
+                opacity: searchAnim,
+                transform: [
+                  {
+                    translateY: searchAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [-6, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
           >
-            <Feather name="share-2" size={14} color={colors.text} />
-            <Text style={[styles.themeText, { color: colors.text }]}>Sync</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={toggleTheme}
-            style={[styles.themeToggle, { backgroundColor: colors.card, borderColor: colors.border }]}
-          >
-            <Feather name={isDark ? 'sun' : 'moon'} size={14} color={colors.text} />
-            <Text style={[styles.themeText, { color: colors.text }]}>{isDark ? 'Light' : 'Dark'}</Text>
-          </TouchableOpacity>
-        </View>
+            <Feather name="search" size={15} color={colors.accent} style={styles.searchInnerIcon} />
+            <TextInput
+              ref={searchInputRef}
+              style={[styles.searchInputField, { color: colors.text }]}
+              placeholder="Search bookmarks by word, author…"
+              placeholderTextColor={colors.sub}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              onBlur={() => {
+                if (searchQuery.trim().length === 0) closeSearch();
+              }}
+              returnKeyType="search"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 ? (
+              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.searchClearBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Feather name="x-circle" size={14} color={colors.sub} />
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity onPress={closeSearch} style={styles.searchCancelBtn}>
+              <Text style={[styles.searchCancelText, { color: colors.accent }]}>Cancel</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        )}
       </View>
 
-      {/* Search Input Box */}
-      <View style={[styles.searchContainer, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-        <Feather name="search" size={15} color={colors.sub} style={styles.searchIcon} />
-        <TextInput
-          style={[styles.searchInput, { color: colors.text }]}
-          placeholder="Search tweets, words, handles, links…"
-          placeholderTextColor={colors.sub}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          returnKeyType="search"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        {searchQuery.length > 0 ? (
-          <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Feather name="x" size={14} color={colors.sub} />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      {/* Search Result Count Banner */}
-      {searchQuery.trim().length > 0 ? (
+      {/* Search Result Count Banner (only while searching) */}
+      {searchOpen && searchQuery.trim().length > 0 ? (
         <View style={styles.searchResultBar}>
           <Text style={[styles.searchResultText, { color: colors.accent }]}>
             {filteredBookmarks.length} {filteredBookmarks.length === 1 ? 'match' : 'matches'} for "{searchQuery.trim()}"
@@ -463,8 +527,6 @@ export default function HomeScreen({ refreshKey }: Props) {
             />
           </View>
         </View>
-      ) : status ? (
-        <Text style={[styles.status, { color: colors.status }]}>{status}</Text>
       ) : null}
 
       <SectionList
@@ -472,6 +534,9 @@ export default function HomeScreen({ refreshKey }: Props) {
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         stickySectionHeadersEnabled={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        onScrollBeginDrag={() => Keyboard.dismiss()}
         ListEmptyComponent={
           searchQuery.trim().length > 0 ? (
             <View style={styles.emptyContainer}>
@@ -772,27 +837,53 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     maxWidth: 280,
   },
-  searchContainer: {
+  brandingGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  appLogo: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    borderWidth: 1,
+  },
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  searchBarRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 14,
     borderWidth: 1,
     paddingHorizontal: 12,
-    paddingVertical: 9,
-    marginTop: 8,
-    marginBottom: 4,
+    paddingVertical: 6,
   },
-  searchIcon: {
+  searchInnerIcon: {
     marginRight: 8,
   },
-  searchInput: {
+  searchInputField: {
     flex: 1,
     fontSize: 14,
     padding: 0,
   },
-  clearSearchBtn: {
+  searchClearBtn: {
     padding: 4,
-    marginLeft: 6,
+    marginRight: 4,
+  },
+  searchCancelBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  searchCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
   },
   searchResultBar: {
     paddingVertical: 6,
@@ -809,38 +900,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 4,
+    minHeight: 40,
   },
-  header: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
-  sub: { fontSize: 13, marginTop: 4 },
+  header: { fontSize: 22, fontWeight: '800', letterSpacing: -0.4 },
   topRightControls: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  syncButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  themeToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  themeIcon: { fontSize: 14 },
-  themeText: { fontSize: 13, fontWeight: '600' },
   dim: { fontSize: 14 },
-  status: { fontSize: 13, marginVertical: 6 },
   error: { fontSize: 14, paddingHorizontal: 16 },
-
   sectionHeader: {
     paddingTop: 18,
     paddingBottom: 8,
