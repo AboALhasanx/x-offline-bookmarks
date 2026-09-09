@@ -28,6 +28,7 @@ import {
 import { getNextPendingTweet, processPendingArticles, saveTweetBookmark } from '../services/queue';
 import { updateBundleFromHtml } from '../services/linkBundle';
 import { exportLibraryPackage, exportLinksPackage, getLocalDeviceIp, pickAndImportPackage } from '../services/syncPackage';
+import { autoDiscoverAndSync, initLanAutoSync, refreshLanSyncPayload } from '../services/lanAutoSync';
 import type { Bookmark, PendingItem, TweetData } from '../types';
 import DetailScreen from './DetailScreen';
 
@@ -53,11 +54,11 @@ export default function HomeScreen({ refreshKey }: Props) {
     try {
       setBookmarks(await getBookmarks());
       setPendingCount(await getPendingCount());
+      refreshLanSyncPayload();
     } catch (e) {
       if (alive.current) setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
-
   useEffect(() => {
     alive.current = true;
     (async () => {
@@ -66,6 +67,23 @@ export default function HomeScreen({ refreshKey }: Props) {
       setReady(true);
       // App opened with a backlog — process it without asking.
       if ((await getPendingCount()) > 0) setAutoKey((k) => k + 1);
+
+      // Auto-start LAN peer server and scan for tablet/phone on same Wi-Fi
+      initLanAutoSync(async (count) => {
+        if (alive.current) {
+          setStatus(`Received ${count} new bookmarks from peer device.`);
+          await reload();
+          setAutoKey((k) => k + 1);
+        }
+      });
+      autoDiscoverAndSync((msg) => {
+        if (alive.current) setStatus(msg);
+      }).then(async ({ synced }) => {
+        if (synced > 0 && alive.current) {
+          await reload();
+          setAutoKey((k) => k + 1);
+        }
+      });
     })();
     return () => {
       alive.current = false;
@@ -210,13 +228,26 @@ export default function HomeScreen({ refreshKey }: Props) {
     }
   }
   async function openSyncDialog() {
-    const ip = await getLocalDeviceIp();
     Alert.alert(
       'Device Sync (Phone & Tablet)',
-      `Local Wi-Fi IP: ${ip}\n\nSync bookmarks, photos, videos, and offline web bundles directly between devices.`,
+      'Sync bookmarks automatically over Wi-Fi between your phone and tablet.',
       [
         {
-          text: 'Sync Links (Instant)',
+          text: 'Auto-Sync Wi-Fi (Scan Now)',
+          onPress: async () => {
+            setStatus('Scanning Wi-Fi for peer device…');
+            const res = await autoDiscoverAndSync((msg) => setStatus(msg));
+            if (res.peerIp) {
+              await reload();
+              if (res.synced > 0) setAutoKey((k) => k + 1);
+              Alert.alert('Auto-Sync Complete', `Connected with ${res.peerIp}.\nSynced ${res.synced} new items.`);
+            } else {
+              Alert.alert('No Peer Found', 'Make sure both your phone and tablet have the app open on the same Wi-Fi.');
+            }
+          },
+        },
+        {
+          text: 'Sync Links (Quick Share)',
           onPress: async () => {
             try {
               setStatus('Sharing links…');
@@ -224,18 +255,6 @@ export default function HomeScreen({ refreshKey }: Props) {
               setStatus(`Shared ${count} links.`);
             } catch (e) {
               Alert.alert('Sync Error', String(e));
-            }
-          },
-        },
-        {
-          text: 'Full Offline Archive (.xbook)',
-          onPress: async () => {
-            try {
-              setStatus('Packaging offline archive…');
-              const { count } = await exportLibraryPackage();
-              setStatus(`Shared ${count} bookmarks.`);
-            } catch (e) {
-              Alert.alert('Export Error', String(e));
             }
           },
         },
