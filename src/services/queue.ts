@@ -169,7 +169,6 @@ ${threadHtml(thread)}
 <div class="caption">${linkifyCaption(data.text, links)}</div>
 ${mediaContent}${cards}
 ${data.createdAt ? `<div class="meta">${escapeHtml(data.createdAt)}</div>` : ''}
-<div class="src">Saved offline from ${escapeHtml(url)}</div>
 ${ZOOM_HTML}
 ${CAROUSEL_SCRIPT}
 </body></html>`;

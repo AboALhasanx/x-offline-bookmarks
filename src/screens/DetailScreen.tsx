@@ -214,12 +214,14 @@ export default function DetailScreen({ bookmark, onBack, onOpenTweet }: Props) {
     true;
   `;
 
+  const hideSrcStyle = `var hs = document.createElement('style'); hs.innerHTML = '.src{display:none!important}'; document.head.appendChild(hs);`;
   const themeScript = isDark
-    ? `(function(){document.body.classList.remove('light-theme');})();true;\n${zoomMonitorJs}`
+    ? `(function(){document.body.classList.remove('light-theme');${hideSrcStyle}})();true;\n${zoomMonitorJs}`
     : `(function(){
         document.body.classList.add('light-theme');
+        ${hideSrcStyle}
         var s = document.createElement('style');
-        s.innerHTML = 'body,html{background:#fff!important;color:#0f1419!important}.name,h1,h2,h3,.caption,.card-title{color:#0f1419!important}.handle,.meta,.src,.card-domain{color:#536471!important}.card,.tpart,.media,.carousel{border-color:#eff3f4!important}.card{background:#f7f9f9!important}pre,code,.avatar{background:#e1e8ed!important;color:#0f1419!important}';
+        s.innerHTML = 'body,html{background:#fff!important;color:#0f1419!important}.name,h1,h2,h3,.caption,.card-title{color:#0f1419!important}.handle,.meta,.card-domain{color:#536471!important}.card,.tpart,.media,.carousel{border-color:#eff3f4!important}.card{background:#f7f9f9!important}pre,code,.avatar{background:#e1e8ed!important;color:#0f1419!important}';
         document.head.appendChild(s);
       })();true;\n${zoomMonitorJs}`;
   const isOnlineWeb = preview?.mode === 'web' && !webFallback;
