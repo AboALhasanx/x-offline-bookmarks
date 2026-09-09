@@ -1,7 +1,7 @@
 import { Directory, File, Paths } from 'expo-file-system';
 import { Share } from 'react-native';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import { getBookmarks, getDb } from '../db/db';
+import { addPendingItem, getBookmarkByUrl, getBookmarks, getDb } from '../db/db';
 import type { Bookmark } from '../types';
 import { ensureDir } from './files';
 
@@ -12,12 +12,22 @@ export interface SyncManifest {
   bookmarks: Bookmark[];
 }
 
+export interface LinksSyncPayload {
+  version: number;
+  exportedAt: number;
+  type: 'links_sync';
+  items: Array<{
+    url: string;
+    text?: string | null;
+    title?: string;
+  }>;
+}
+
 export interface SyncResult {
   imported: number;
   skipped: number;
   total: number;
 }
-
 /** Recursively collects all files from a directory into a zip object */
 async function collectFilesRecursive(
   dir: Directory,
@@ -44,6 +54,41 @@ async function collectFilesRecursive(
   }
 }
 
+
+/**
+ * Instant lightweight sync: exports URLs and captions in milliseconds as .xlinks.
+ * The receiving device queues them into pending_items to auto-download all media
+ * and offline web bundles when online!
+ */
+export async function exportLinksPackage(): Promise<{ uri: string; count: number }> {
+  const bookmarks = await getBookmarks();
+  const payload: LinksSyncPayload = {
+    version: 1,
+    exportedAt: Date.now(),
+    type: 'links_sync',
+    items: bookmarks.map((b) => ({
+      url: b.url,
+      text: b.caption || b.title,
+      title: b.title,
+    })),
+  };
+
+  const exportFile = new File(Paths.cache, 'xbookmarks_links.xlinks');
+  if (!exportFile.exists) exportFile.create();
+  exportFile.write(JSON.stringify(payload, null, 2));
+
+  try {
+    await Share.share({
+      title: 'Sync Bookmarks to Honor Pad',
+      url: exportFile.uri,
+      message: exportFile.uri,
+    });
+  } catch (e) {
+    console.log('Share error:', e);
+  }
+
+  return { uri: exportFile.uri, count: payload.items.length };
+}
 /**
  * Packages all bookmarks, offline images, and web bundles into a single
  * compressed .xbook file and triggers the native Quick Share / Share sheet.
@@ -97,6 +142,32 @@ export async function importLibraryPackage(fileUri: string): Promise<SyncResult>
     throw new Error('Sync package file not found');
   }
 
+  // 1. Check for instant lightweight .xlinks or JSON payload
+  if (fileUri.endsWith('.xlinks') || fileUri.endsWith('.json')) {
+    try {
+      const text = await sourceFile.text();
+      const data = JSON.parse(text) as LinksSyncPayload;
+      if (data.type === 'links_sync' && Array.isArray(data.items)) {
+        let imported = 0;
+        let skipped = 0;
+        for (const item of data.items) {
+          if (!item.url) continue;
+          const existing = await getBookmarkByUrl(item.url);
+          if (existing) {
+            skipped++;
+            continue;
+          }
+          await addPendingItem(item.url, item.text || null);
+          imported++;
+        }
+        return { imported, skipped, total: data.items.length };
+      }
+    } catch (e) {
+      console.log('Not a plain links_sync file, checking zip archive:', e);
+    }
+  }
+
+  // 2. Otherwise unpack binary zip archive (.xbook)
   const zipBytes = await sourceFile.bytes();
   const unzipped = unzipSync(zipBytes);
 

@@ -27,7 +27,7 @@ import {
 } from '../db/db';
 import { getNextPendingTweet, processPendingArticles, saveTweetBookmark } from '../services/queue';
 import { updateBundleFromHtml } from '../services/linkBundle';
-import { exportLibraryPackage, getLocalDeviceIp, pickAndImportPackage } from '../services/syncPackage';
+import { exportLibraryPackage, exportLinksPackage, getLocalDeviceIp, pickAndImportPackage } from '../services/syncPackage';
 import type { Bookmark, PendingItem, TweetData } from '../types';
 import DetailScreen from './DetailScreen';
 
@@ -216,10 +216,22 @@ export default function HomeScreen({ refreshKey }: Props) {
       `Local Wi-Fi IP: ${ip}\n\nSync bookmarks, photos, videos, and offline web bundles directly between devices.`,
       [
         {
-          text: 'Send to Device (Quick Share)',
+          text: 'Sync Links (Instant)',
           onPress: async () => {
             try {
-              setStatus('Exporting library package…');
+              setStatus('Sharing links…');
+              const { count } = await exportLinksPackage();
+              setStatus(`Shared ${count} links.`);
+            } catch (e) {
+              Alert.alert('Sync Error', String(e));
+            }
+          },
+        },
+        {
+          text: 'Full Offline Archive (.xbook)',
+          onPress: async () => {
+            try {
+              setStatus('Packaging offline archive…');
               const { count } = await exportLibraryPackage();
               setStatus(`Shared ${count} bookmarks.`);
             } catch (e) {
