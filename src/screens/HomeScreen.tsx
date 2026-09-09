@@ -6,6 +6,7 @@ import {
   SectionList,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -47,6 +48,7 @@ export default function HomeScreen({ refreshKey }: Props) {
   const [tweetJob, setTweetJob] = useState<PendingItem | null>(null);
   const [preloadJob, setPreloadJob] = useState<PreloadTarget | null>(null);
   const [openStack, setOpenStack] = useState<number[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [batchTotal, setBatchTotal] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
@@ -330,7 +332,18 @@ export default function HomeScreen({ refreshKey }: Props) {
     }
   }, [processing, pendingCount, pulseAnim]);
 
-  const sections = useMemo(() => groupBookmarksByDate(bookmarks), [bookmarks]);
+  const filteredBookmarks = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return bookmarks;
+    const words = q.split(/\s+/).filter(Boolean);
+    return bookmarks.filter((b) => {
+      const text = `${b.title} ${b.caption} ${b.url} ${b.links.map((l) => `${l.title} ${l.domain}`).join(' ')}`.toLowerCase();
+      return text.includes(q) || words.every((w) => text.includes(w));
+    });
+  }, [bookmarks, searchQuery]);
+
+  const sections = useMemo(() => groupBookmarksByDate(filteredBookmarks), [filteredBookmarks]);
+
   if (!ready) {
     return (
       <View style={[styles.center, { backgroundColor: colors.bg }]}>
@@ -387,6 +400,35 @@ export default function HomeScreen({ refreshKey }: Props) {
         </View>
       </View>
 
+      {/* Search Input Box */}
+      <View style={[styles.searchContainer, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+        <Feather name="search" size={15} color={colors.sub} style={styles.searchIcon} />
+        <TextInput
+          style={[styles.searchInput, { color: colors.text }]}
+          placeholder="Search tweets, words, handles, links…"
+          placeholderTextColor={colors.sub}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {searchQuery.length > 0 ? (
+          <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Feather name="x" size={14} color={colors.sub} />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {/* Search Result Count Banner */}
+      {searchQuery.trim().length > 0 ? (
+        <View style={styles.searchResultBar}>
+          <Text style={[styles.searchResultText, { color: colors.accent }]}>
+            {filteredBookmarks.length} {filteredBookmarks.length === 1 ? 'match' : 'matches'} for "{searchQuery.trim()}"
+          </Text>
+        </View>
+      ) : null}
+
       {processing || pendingCount > 0 ? (
         <View style={[styles.progressCard, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
           <View style={styles.progressTopRow}>
@@ -431,15 +473,27 @@ export default function HomeScreen({ refreshKey }: Props) {
         contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}
         stickySectionHeadersEnabled={false}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <View style={[styles.emptyIconCircle, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
-              <Feather name="bookmark" size={30} color={colors.sub} />
+          searchQuery.trim().length > 0 ? (
+            <View style={styles.emptyContainer}>
+              <View style={[styles.emptyIconCircle, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                <Feather name="search" size={28} color={colors.sub} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>No Matches Found</Text>
+              <Text style={[styles.emptySub, { color: colors.sub }]}>
+                No saved tweets or articles matched "{searchQuery.trim()}". Try another keyword or handle.
+              </Text>
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No Bookmarks Saved Yet</Text>
-            <Text style={[styles.emptySub, { color: colors.sub }]}>
-              Share any tweet from the X app or tap Sync to receive bookmarks from another device.
-            </Text>
-          </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <View style={[styles.emptyIconCircle, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}>
+                <Feather name="bookmark" size={30} color={colors.sub} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>No Bookmarks Saved Yet</Text>
+              <Text style={[styles.emptySub, { color: colors.sub }]}>
+                Share any tweet from the X app or tap Sync to receive bookmarks from another device.
+              </Text>
+            </View>
+          )
         }
         renderSectionHeader={({ section }) => (
           <View style={[styles.sectionHeader, { backgroundColor: colors.bg }]}>
@@ -717,6 +771,36 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     maxWidth: 280,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    padding: 0,
+  },
+  clearSearchBtn: {
+    padding: 4,
+    marginLeft: 6,
+  },
+  searchResultBar: {
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+  },
+  searchResultText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   container: { flex: 1, paddingHorizontal: 16 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },

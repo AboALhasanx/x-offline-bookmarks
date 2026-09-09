@@ -35,38 +35,61 @@ export default function DetailScreen({ bookmark, onBack, onOpenTweet }: Props) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [webFallback, setWebFallback] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [isZoomed, setIsZoomed] = useState(false);
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const isTweet = bookmark.type === 'tweet';
+
   const previewRef = useRef<Preview | null>(null);
   previewRef.current = preview;
+  const isZoomedRef = useRef(false);
+  isZoomedRef.current = isZoomed;
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
-
+  const mainWebviewRef = useRef<WebView>(null);
+  const previewWebviewRef = useRef<WebView>(null);
   function goBack() {
     if (previewRef.current) setPreview(null);
     else onBackRef.current();
   }
 
-  // System back (edge swipe / back key) must walk preview → post → home,
-  // and only ever exit the app from the home list itself.
+  // System back (edge swipe / back key) walks zoom -> preview -> post -> home
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (previewRef.current) setPreview(null);
-      else onBackRef.current();
+      if (isZoomedRef.current) {
+        setIsZoomed(false);
+        const script = 'window.closeZoom ? window.closeZoom() : null; true;';
+        mainWebviewRef.current?.injectJavaScript(script);
+        previewWebviewRef.current?.injectJavaScript(script);
+        return true;
+      }
+      if (previewRef.current) {
+        setPreview(null);
+        return true;
+      }
+      onBackRef.current();
       return true;
     });
     return () => sub.remove();
   }, []);
+
   const pan = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => g.dx > 24 && Math.abs(g.dx) > Math.abs(g.dy) * 1.6,
+      onMoveShouldSetPanResponder: (_, g) => {
+        // Never intercept touch if image is zoomed
+        if (isZoomedRef.current) return false;
+        // Only allow back navigation if gesture started at the screen's left edge (<= 40px)
+        const isLeftEdge = g.x0 <= 40;
+        const isRightward = g.dx > 35 && Math.abs(g.dx) > Math.abs(g.dy) * 2;
+        return isLeftEdge && isRightward;
+      },
       onPanResponderRelease: (_, g) => {
-        if (g.dx > 110) goBack();
+        if (!isZoomedRef.current && g.x0 <= 40 && g.dx > 100) {
+          goBack();
+        }
       },
     }),
   ).current;
-
   async function copyCaption() {
     try {
       await Clipboard.setStringAsync(bookmark.caption || bookmark.title);
@@ -104,8 +127,6 @@ export default function DetailScreen({ bookmark, onBack, onOpenTweet }: Props) {
     setToast(message);
     setTimeout(() => setToast(null), 1500);
   }
-
-
   function handleMessage(event: WebViewMessageEvent) {
     const data = event.nativeEvent.data;
     if (data.startsWith('open-tweet:')) {
@@ -114,7 +135,11 @@ export default function DetailScreen({ bookmark, onBack, onOpenTweet }: Props) {
     } else if (data.startsWith('{')) {
       try {
         const msg = JSON.parse(data);
-        if (msg.type === 'UPDATE_SNAPSHOT' && msg.html && previewRef.current) {
+        if (msg.type === 'ZOOM_OPEN') {
+          setIsZoomed(true);
+        } else if (msg.type === 'ZOOM_CLOSE') {
+          setIsZoomed(false);
+        } else if (msg.type === 'UPDATE_SNAPSHOT' && msg.html && previewRef.current) {
           const cur = previewRef.current;
           updateBundleFromHtml(cur.frozenUri, cur.url, msg.html).then((res) => {
             if (res.cleanUri) {
@@ -153,15 +178,50 @@ export default function DetailScreen({ bookmark, onBack, onOpenTweet }: Props) {
     }
     return false;
   }
+
+  const zoomMonitorJs = `
+    (function() {
+      function notify(open) {
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: open ? 'ZOOM_OPEN' : 'ZOOM_CLOSE'
+          }));
+        } catch(e) {}
+      }
+      function watchOverlay() {
+        var ov = document.getElementById('zoomov');
+        if (ov) {
+          var obs = new MutationObserver(function() {
+            notify(ov.classList.contains('open'));
+          });
+          obs.observe(ov, { attributes: true, attributeFilter: ['class'] });
+        } else {
+          setTimeout(watchOverlay, 200);
+        }
+      }
+      watchOverlay();
+      var oz = window.zoomImg;
+      window.zoomImg = function(s) {
+        notify(true);
+        if (oz) oz(s);
+      };
+      var oc = window.closeZoom;
+      window.closeZoom = function() {
+        notify(false);
+        if (oc) oc();
+      };
+    })();
+    true;
+  `;
+
   const themeScript = isDark
-    ? `(function(){document.body.classList.remove('light-theme');})();true;`
+    ? `(function(){document.body.classList.remove('light-theme');})();true;\n${zoomMonitorJs}`
     : `(function(){
         document.body.classList.add('light-theme');
         var s = document.createElement('style');
         s.innerHTML = 'body,html{background:#fff!important;color:#0f1419!important}.name,h1,h2,h3,.caption,.card-title{color:#0f1419!important}.handle,.meta,.src,.card-domain{color:#536471!important}.card,.tpart,.media,.carousel{border-color:#eff3f4!important}.card{background:#f7f9f9!important}pre,code,.avatar{background:#e1e8ed!important;color:#0f1419!important}';
         document.head.appendChild(s);
-      })();true;`;
-
+      })();true;\n${zoomMonitorJs}`;
   const isOnlineWeb = preview?.mode === 'web' && !webFallback;
   const activePreviewSource =
     preview?.mode === 'reader'
@@ -287,8 +347,8 @@ export default function DetailScreen({ bookmark, onBack, onOpenTweet }: Props) {
 
       {preview ? (
         <WebView
+          ref={previewWebviewRef}
           key={`${preview.mode}_${webFallback ? 'index' : isOnlineWeb ? 'online' : 'frozen'}`}
-          style={[styles.web, { backgroundColor: colors.bg }]}
           originWhitelist={['*']}
           source={activePreviewSource}
           allowFileAccess
@@ -326,6 +386,7 @@ export default function DetailScreen({ bookmark, onBack, onOpenTweet }: Props) {
         />
       ) : (
         <WebView
+          ref={mainWebviewRef}
           style={[styles.web, { backgroundColor: colors.bg }]}
           originWhitelist={['*']}
           source={{ html: bookmark.html_content }}
