@@ -9,6 +9,7 @@ import { useShareIntent } from 'expo-share-intent';
 import { addPendingItem } from './src/db/db';
 import HomeScreen from './src/screens/HomeScreen';
 import { ThemeProvider, useTheme } from './src/theme/ThemeContext';
+import { importLibraryPackage } from './src/services/syncPackage';
 function extractUrl(text: string): string | null {
   const match = text.match(/https?:\/\/[^\s"')\]]+/);
   return match ? match[0] : null;
@@ -22,6 +23,24 @@ export default function App() {
     if (!hasShareIntent || !shareIntent) return;
     (async () => {
       try {
+        // Handle shared .xbook or .zip sync packages from Quick Share
+        if (shareIntent.files && shareIntent.files.length > 0) {
+          const file = shareIntent.files[0];
+          if (
+            file.path &&
+            (file.path.endsWith('.xbook') ||
+              file.path.endsWith('.zip') ||
+              file.mimeType?.includes('zip') ||
+              file.mimeType?.includes('octet-stream'))
+          ) {
+            ToastAndroid.show('Importing sync package…', ToastAndroid.SHORT);
+            const res = await importLibraryPackage(file.path);
+            ToastAndroid.show(`Synced ${res.imported} bookmarks from device`, ToastAndroid.LONG);
+            setRefreshKey((k) => k + 1);
+            return;
+          }
+        }
+
         const raw = shareIntent.webUrl ?? shareIntent.text ?? '';
         const url = shareIntent.webUrl ?? (raw ? extractUrl(raw) : null) ?? raw;
         if (!url) {
@@ -32,7 +51,7 @@ export default function App() {
           setRefreshKey((k) => k + 1);
         }
       } catch {
-        ToastAndroid.show('Could not queue share', ToastAndroid.SHORT);
+        ToastAndroid.show('Could not process shared content', ToastAndroid.SHORT);
       } finally {
         resetShareIntent();
       }

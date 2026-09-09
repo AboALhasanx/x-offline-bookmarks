@@ -27,6 +27,7 @@ import {
 } from '../db/db';
 import { getNextPendingTweet, processPendingArticles, saveTweetBookmark } from '../services/queue';
 import { updateBundleFromHtml } from '../services/linkBundle';
+import { exportLibraryPackage, getLocalDeviceIp, pickAndImportPackage } from '../services/syncPackage';
 import type { Bookmark, PendingItem, TweetData } from '../types';
 import DetailScreen from './DetailScreen';
 
@@ -208,6 +209,43 @@ export default function HomeScreen({ refreshKey }: Props) {
       await pumpPreloads();
     }
   }
+  async function openSyncDialog() {
+    const ip = await getLocalDeviceIp();
+    Alert.alert(
+      'Device Sync (Phone & Tablet)',
+      `Local Wi-Fi IP: ${ip}\n\nSync bookmarks, photos, videos, and offline web bundles directly between devices.`,
+      [
+        {
+          text: 'Send to Device (Quick Share)',
+          onPress: async () => {
+            try {
+              setStatus('Exporting library package…');
+              const { count } = await exportLibraryPackage();
+              setStatus(`Shared ${count} bookmarks.`);
+            } catch (e) {
+              Alert.alert('Export Error', String(e));
+            }
+          },
+        },
+        {
+          text: 'Import Package File',
+          onPress: async () => {
+            try {
+              setStatus('Importing package…');
+              const res = await pickAndImportPackage();
+              await reload();
+              setStatus(`Imported ${res.imported} new items (${res.skipped} already saved).`);
+              Alert.alert('Sync Complete', `Successfully imported ${res.imported} bookmarks.`);
+            } catch (e) {
+              if (String(e).includes('No file selected')) return;
+              Alert.alert('Import Error', String(e));
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  }
 
   function confirmDelete(id: number) {
     Alert.alert('Delete bookmark?', 'This removes the saved offline copy.', [
@@ -261,14 +299,24 @@ export default function HomeScreen({ refreshKey }: Props) {
             {bookmarks.length} saved · {pendingCount} pending
           </Text>
         </View>
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={toggleTheme}
-          style={[styles.themeToggle, { backgroundColor: colors.card, borderColor: colors.border }]}
-        >
-          <Feather name={isDark ? 'sun' : 'moon'} size={14} color={colors.text} />
-          <Text style={[styles.themeText, { color: colors.text }]}>{isDark ? 'Light' : 'Dark'}</Text>
-        </TouchableOpacity>
+        <View style={styles.topRightControls}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={openSyncDialog}
+            style={[styles.syncButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+          >
+            <Feather name="share-2" size={14} color={colors.text} />
+            <Text style={[styles.themeText, { color: colors.text }]}>Sync</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={toggleTheme}
+            style={[styles.themeToggle, { backgroundColor: colors.card, borderColor: colors.border }]}
+          >
+            <Feather name={isDark ? 'sun' : 'moon'} size={14} color={colors.text} />
+            <Text style={[styles.themeText, { color: colors.text }]}>{isDark ? 'Light' : 'Dark'}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {status ? <Text style={[styles.status, { color: colors.status }]}>{status}</Text> : null}
@@ -501,6 +549,20 @@ const styles = StyleSheet.create({
   },
   header: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
   sub: { fontSize: 13, marginTop: 4 },
+  topRightControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  syncButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
   themeToggle: {
     flexDirection: 'row',
     alignItems: 'center',

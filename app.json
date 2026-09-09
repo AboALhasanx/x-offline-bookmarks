@@ -33,9 +33,13 @@
       [
         "expo-share-intent",
         {
-          "androidIntentFilters": ["text/*", "image/*"]
+          "androidIntentFilters": [
+            "text/*",
+            "image/*"
+          ]
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }
